@@ -47,6 +47,7 @@ class Dataloader():
         self.numatoms = np.array(numatoms)
         self.pbc = np.array(pbc)
         self.field = np.array(field)
+        self.dipole = np.array(dipole)
         self.coordinates = coordinates
         self.maxnumatom = np.max(self.numatoms)
         self.maxneigh = maxneigh * self.maxnumatom
@@ -132,7 +133,7 @@ class Dataloader():
                 stress = self.stress[index_batch].reshape(self.ncyc, -1, 3, 3)
                 abprop = abprop + (stress,)
             if self.dipole_table:
-                dipole = self.dipole[index_batch].reshape(self.local_size, self.ncyc, -1, 3)
+                dipole = self.dipole[index_batch].reshape(self.ncyc, -1, 3)
                 abprop = abprop + (dipole,)
              
             self.ipoint = uppoint

@@ -265,6 +265,7 @@ def make_gradient(pes_model):
             nnpot, nndipole = nnprop
             delta_dipole = abdipole - nndipole
             int_modulo = jnp.trunc(jnp.einsum("ij, ijk ->ik", delta_dipole, jnp.linalg.inv(cell)))
+            jax.debug.print("{x}", x=int_modulo)
             modulo_dipole = jnp.einsum("ij, ijk -> ik", int_modulo, cell)
             delta_dipole = delta_dipole - jax.lax.stop_gradient(modulo_dipole)
             loss = weight[0] * jnp.sum(jnp.square((abpot - nnpot) / jnp.sum(center_factor, axis=1))) \
@@ -318,6 +319,7 @@ def make_loss(pes_model, nprop):
             nnpot, nndipole = nnprop
             delta_dipole = abdipole - nndipole
             int_modulo = jnp.trunc(jnp.einsum("ij, ijk ->ik", delta_dipole, jnp.linalg.inv(cell)))
+            jax.debug.print("{x}", x=int_modulo)
             modulo_dipole = jnp.einsum("ij, ijk -> ik", int_modulo, cell)
             delta_dipole = delta_dipole - jax.lax.stop_gradient(modulo_dipole)
             loss1 = jnp.sum(jnp.square((abpot - nnpot) / jnp.sum(center_factor, axis=1))) 
