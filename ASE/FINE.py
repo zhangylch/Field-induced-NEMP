@@ -6,10 +6,10 @@ from ase.constraints import FixAtoms
 from ase.stress import full_3x3_to_voigt_6_stress
 from ase.calculators.calculator import Calculator
 import numpy as np
-import ase.calculators.nemp.MPNN as MPNN
-from ase.calculators.nemp.convert_type import convert_dtype
-from ase.calculators.nemp.data_config import ModelConfig
-from ase.calculators.nemp.read_json import load_config
+import ase.calculators.fine.MPNN as MPNN
+from ase.calculators.fine.convert_type import convert_dtype
+from ase.calculators.fine.data_config import ModelConfig
+from ase.calculators.fine.read_json import load_config
 import orbax.checkpoint as oc
 from ase.calculators.calculator import (Calculator, all_changes,
                                         PropertyNotImplementedError)
@@ -22,7 +22,7 @@ def stop_grad(variables, dtype):
     return traverse_util.unflatten_dict(new_vars)
 
 
-class NEMP(Calculator):
+class FINE(Calculator):
     
     implemented_properties = ['energy', 'forces', 'stress']
     
@@ -101,23 +101,23 @@ class NEMP(Calculator):
         self.old_distvec = distvec
         key = jax.random.PRNGKey(0)
         params_rng = {"params": key}
-        data = (positions, self.cell, self.disp_cell, neighlist, shifts, self.center_factor, self.species)
+        data = (positions, self.Field, self.cell, self.disp_cell, neighlist, shifts, self.center_factor, self.species)
         tmp_params = model.init(params_rng, *data)
         
 
         if 'forces' in properties and 'stress' not in properties:
-            def get_e_f(params, coor, cell, disp_cell, neighlist, shiftimage, center_factor, species):
-                ene, force = jax.value_and_grad(model.apply, argnums=1)(params, coor, cell, disp_cell, neighlist, shiftimage, center_factor, species)
+            def get_e_f(params, coor, Field, cell, disp_cell, neighlist, shiftimage, center_factor, species):
+                ene, force = jax.value_and_grad(model.apply, argnums=1)(params, coor, Field, cell, disp_cell, neighlist, shiftimage, center_factor, species)
                 return ene, -force
             self.pes = jax.jit(get_e_f)
         elif 'stress' in properties:
-            def get_e_f_s(params, coor, cell, disp_cell, neighlist, shiftimage, center_factor, species):
-                ene, (force, stress) = jax.value_and_grad(model.apply, argnums=[1, 3])(params, coor, cell, disp_cell, neighlist, shiftimage, center_factor, species)
+            def get_e_f_s(params, coor, Field, cell, disp_cell, neighlist, shiftimage, center_factor, species):
+                ene, (force, stress) = jax.value_and_grad(model.apply, argnums=[1, 3])(params, coor, Field, cell, disp_cell, neighlist, shiftimage, center_factor, species)
                 return ene, -force, stress
             self.pes = jax.jit(get_e_f_s)
         else:
-            def get_energy(params, coor, cell, disp_cell, neighlist, shiftimage, center_factor, species):
-                return model.apply(params, coor, cell, disp_cell, neighlist, shiftimage, center_factor, species),
+            def get_energy(params, coor, Field, cell, disp_cell, neighlist, shiftimage, center_factor, species):
+                return model.apply(params, coor, Field, cell, disp_cell, neighlist, shiftimage, center_factor, species),
             self.pes = jax.jit(get_energy)
 
         

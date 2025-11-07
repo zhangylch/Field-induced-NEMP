@@ -13,6 +13,7 @@ class JsonConfig:
     stress_table: bool = field(default=False)
     stress_sign: int = field(default=1.0)
     dipole_sign: int = field(default=1.0)
+    parity: bool = field(default=False)
     restart: bool = field(default=False)        
     jnp_dtype: str = field(default='float64')   #float32/float64
     batchsize: int = field(default=50) # batchsize for each process
