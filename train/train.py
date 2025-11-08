@@ -230,7 +230,7 @@ elif full_config.force_table and full_config.dipole_table and full_config.bec_ta
     def get_force_dipole_bec(params, coor, field, cell, disp_cell, neighlist, shiftimage, center_factor, species):
         ene, (force, dipole) = jax.value_and_grad(model.apply, argnums=[1, 2])(params, coor, field, cell, disp_cell, neighlist, shiftimage, center_factor, species)
 
-        bec = jax.jacobian(jax.grad(model.apply, argnums=1), argnums=2)(params, coor, field, cell, disp_cell, neighlist, shiftimage, center_factor, species)
+        bec = jax.jacfwd(jax.grad(model.apply, argnums=1), argnums=2)(params, coor, field, cell, disp_cell, neighlist, shiftimage, center_factor, species)
         return ene, force, dipole*jnp.array(full_config.dipole_sign), bec * jnp.array(full_config.bec_sign)
     vmap_model = vmap(get_force_dipole_bec, in_axes=(None, 0, 0, 0, 0, 0, 0, 0, 0))
 elif full_config.dipole_table:
