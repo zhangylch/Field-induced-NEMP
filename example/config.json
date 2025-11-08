@@ -33,7 +33,7 @@
     "use_norm": true,
     "clip_norm": 0.1,
     "seed": 20,
-    "pn": 1,
+    "pn": 6,
     "npaircode": 16,
     "cross_val": false,
     "Epoch": 20000,
