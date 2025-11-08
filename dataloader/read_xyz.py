@@ -4,7 +4,7 @@ import numpy as np
 from typing import List, Dict, Any
 import re
 
-def read_xyz(filename, force_table=True, stress_table=False, dipole_table=False):
+def read_xyz(filename, force_table=True, stress_table=False, dipole_table=False, bec_table=False):
     
     # 手动读取文件内容
     with open(filename, 'r') as f:
@@ -18,11 +18,16 @@ def read_xyz(filename, force_table=True, stress_table=False, dipole_table=False)
     force = None
     stress = None
     dipole = None
+    bec = None
     species = []
     numatoms = []
+    ncol = 4
     if force_table: force = []
     if stress_table: stress = []
     if dipole_table: dipole = []
+    if bec_table: 
+        ncol = 13
+        bec = []
 
     index = 0
     while index < len(lines):
@@ -73,17 +78,20 @@ def read_xyz(filename, force_table=True, stress_table=False, dipole_table=False)
         symbols = []
         positions = []
         iforce = []
+        ibec = []
         for _ in range(natoms):
             parts = lines[index].split()
             symbols.append(parts[0])
             positions.append([float(x) for x in parts[1:4]])
-            if force_table: iforce.append([float(x) for x in parts[4:7]])
+            if bec_table: ibec.append([float(x) for x in parts[4:13]])
+            if force_table: iforce.append([float(x) for x in parts[ncol:ncol+3]])
             index += 1
         coor.append(np.array(positions, order="F").T)
         if force_table: force.append(np.array(iforce))
+        if bec_table: bec.append(np.array(ibec))
           
         atoms = Atoms(symbols=symbols, positions=positions, cell=icell, pbc=ipbc)
         species.append(atoms.get_atomic_numbers())
         
         
-    return coor, field, cell, pbc, species, numatoms, pot, force, stress, dipole
+    return coor, field, cell, pbc, species, numatoms, pot, force, stress, dipole, bec

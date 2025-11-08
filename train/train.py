@@ -157,7 +157,7 @@ def train(params, ema_params, config, optim, ckpt, ckpt_cpu, ckpt_restore, ckpt_
 
 key = jax.random.split(key[-1], 2)
 
-data_load = dataloader.Dataloader(full_config.maxneigh, full_config.batchsize, local_size=full_config.local_size, initpot=full_config.initpot, ncyc=full_config.ncyc, cutoff=full_config.cutoff, datafolder=full_config.datafolder, ene_shift=full_config.ene_shift, force_table=full_config.force_table, stress_table=full_config.stress_table, dipole_table=full_config.dipole_table, cross_val=full_config.cross_val, jnp_dtype=full_config.jnp_dtype, key=full_config.seed, Fshuffle=full_config.Fshuffle, ntrain=full_config.ntrain)
+data_load = dataloader.Dataloader(full_config.maxneigh, full_config.batchsize, local_size=full_config.local_size, initpot=full_config.initpot, ncyc=full_config.ncyc, cutoff=full_config.cutoff, datafolder=full_config.datafolder, ene_shift=full_config.ene_shift, force_table=full_config.force_table, stress_table=full_config.stress_table, dipole_table=full_config.dipole_table, bec_table=full_config.bec_table, cross_val=full_config.cross_val, jnp_dtype=full_config.jnp_dtype, key=full_config.seed, Fshuffle=full_config.Fshuffle, ntrain=full_config.ntrain)
 
 full_config = replace(full_config, initpot=data_load.initpot)
 with open("full_config.json", "w") as f:
@@ -174,8 +174,10 @@ if full_config.stress_table:
     nprop = 3
 elif full_config.force_table and (not full_config.dipole_table):
     nprop = 2
-elif full_config.force_table and full_config.dipole_table:
+elif full_config.force_table and full_config.dipole_table and (not full_config.bec_table):
     nprop = 3
+elif full_config.force_table and full_config.dipole_table and full_config.bec_table:
+    nprop = 4
 elif full_config.dipole_table:
     nprop = 2
 
@@ -219,11 +221,18 @@ if full_config.stress_table:
     vmap_model = vmap(get_force_stress, in_axes=(None, 0, 0, 0, 0, 0, 0, 0, 0))
 elif full_config.force_table and (not full_config.dipole_table):
     vmap_model = vmap(jax.value_and_grad(model.apply, argnums=1), in_axes=(None, 0, 0, 0, 0, 0, 0, 0, 0))
-elif full_config.force_table and full_config.dipole_table:
+elif full_config.force_table and full_config.dipole_table and (not full_config.bec_table):
     def get_force_dipole(params, coor, field, cell, disp_cell, neighlist, shiftimage, center_factor, species):
         ene, (force, dipole) = jax.value_and_grad(model.apply, argnums=[1, 2])(params, coor, field, cell, disp_cell, neighlist, shiftimage, center_factor, species)
         return ene, force, dipole*jnp.array(full_config.dipole_sign)
     vmap_model = vmap(get_force_dipole, in_axes=(None, 0, 0, 0, 0, 0, 0, 0, 0))
+elif full_config.force_table and full_config.dipole_table and full_config.bec_table:
+    def get_force_dipole_bec(params, coor, field, cell, disp_cell, neighlist, shiftimage, center_factor, species):
+        ene, (force, dipole) = jax.value_and_grad(model.apply, argnums=[1, 2])(params, coor, field, cell, disp_cell, neighlist, shiftimage, center_factor, species)
+
+        bec = jax.jacobian(jax.grad(model.apply, argnums=1), argnums=2)(params, coor, field, cell, disp_cell, neighlist, shiftimage, center_factor, species)
+        return ene, force, dipole*jnp.array(full_config.dipole_sign), bec * jnp.array(full_config.bec_sign)
+    vmap_model = vmap(get_force_dipole_bec, in_axes=(None, 0, 0, 0, 0, 0, 0, 0, 0))
 elif full_config.dipole_table:
     def get_dipole(params, coor, field, cell, disp_cell, neighlist, shiftimage, center_factor, species):
         ene, dipole = jax.value_and_grad(model.apply, argnums=2)(params, coor, field, cell, disp_cell, neighlist, shiftimage, center_factor, species)
@@ -250,7 +259,7 @@ def make_gradient(pes_model):
             nnpot, nnforce = nnprop
             loss = weight[0] * jnp.sum(jnp.square((abpot - nnpot) / jnp.sum(center_factor, axis=1))) \
                  + weight[1] * jnp.sum(jnp.square(abforce - nnforce) / (3 * jnp.sum(center_factor, axis=1)[:, None, None]))
-        elif full_config.force_table and full_config.dipole_table:
+        elif full_config.force_table and full_config.dipole_table and (not full_config.bec_table):
             abpot, abforce, abdipole = abprop
             nnpot, nnforce, nndipole = nnprop
             delta_dipole = abdipole - nndipole
@@ -260,6 +269,17 @@ def make_gradient(pes_model):
             loss = weight[0] * jnp.sum(jnp.square((abpot - nnpot) / jnp.sum(center_factor, axis=1))) \
                  + weight[1] * jnp.sum(jnp.square(abforce - nnforce) / (3 * jnp.sum(center_factor, axis=1)[:, None, None])) \
                  + weight[2] * jnp.sum(jnp.square(delta_dipole)) / jnp.array(3.0)
+        elif full_config.force_table and full_config.dipole_table and full_config.bec_table:
+            abpot, abforce, abdipole, abbec = abprop
+            nnpot, nnforce, nndipole, nnbec = nnprop
+            delta_dipole = abdipole - nndipole
+            int_modulo = jnp.trunc(jnp.einsum("ij, ijk ->ik", delta_dipole, jnp.linalg.inv(cell)))
+            modulo_dipole = jnp.einsum("ij, ijk -> ik", int_modulo, cell)
+            delta_dipole = delta_dipole - jax.lax.stop_gradient(modulo_dipole)
+            loss = weight[0] * jnp.sum(jnp.square((abpot - nnpot) / jnp.sum(center_factor, axis=1))) \
+                 + weight[1] * jnp.sum(jnp.square(abforce - nnforce) / (3 * jnp.sum(center_factor, axis=1)[:, None, None])) \
+                 + weight[2] * jnp.sum(jnp.square(delta_dipole)) / jnp.array(3.0) \
+                 + weight[3] * jnp.sum(jnp.square(abbec - nnbec) / (9 * jnp.sum(center_factor, axis=1)[:, None, None]))
         elif full_config.dipole_table:
             abpot, abdipole = abprop
             nnpot, nndipole = nnprop
@@ -301,7 +321,7 @@ def make_loss(pes_model, nprop):
             loss2 = jnp.sum(jnp.square(abforce - nnforce) / (3 * jnp.sum(center_factor, axis=1)[:, None, None]))
             ploss = jnp.stack([loss1, loss2])
             loss = loss1*weight[0] + loss2*weight[1]
-        elif full_config.force_table and full_config.dipole_table:
+        elif full_config.force_table and full_config.dipole_table and (not full_config.bec_table):
             abpot, abforce, abdipole = abprop
             nnpot, nnforce, nndipole = nnprop
             delta_dipole = abdipole - nndipole
@@ -313,6 +333,19 @@ def make_loss(pes_model, nprop):
             loss3 = jnp.sum(jnp.square(delta_dipole)) / jnp.array(3.0)
             ploss = jnp.stack([loss1, loss2, loss3])
             loss = loss1*weight[0] + loss2*weight[1] + loss3*weight[2]
+        elif full_config.force_table and full_config.dipole_table and full_config.bec_table:
+            abpot, abforce, abdipole, abbec = abprop
+            nnpot, nnforce, nndipole, nnbec = nnprop
+            delta_dipole = abdipole - nndipole
+            int_modulo = jnp.trunc(jnp.einsum("ij, ijk ->ik", delta_dipole, jnp.linalg.inv(cell)))
+            modulo_dipole = jnp.einsum("ij, ijk -> ik", int_modulo, cell)
+            delta_dipole = delta_dipole - jax.lax.stop_gradient(modulo_dipole)
+            loss1 = jnp.sum(jnp.square((abpot - nnpot) / jnp.sum(center_factor, axis=1))) 
+            loss2 = jnp.sum(jnp.square(abforce - nnforce) / (3 * jnp.sum(center_factor, axis=1)[:, None, None])) 
+            loss3 = jnp.sum(jnp.square(delta_dipole)) / jnp.array(3.0)
+            loss4 = jnp.sum(jnp.square(abbec - nnbec) / (9 * jnp.sum(center_factor, axis=1)[:, None, None])) 
+            ploss = jnp.stack([loss1, loss2, loss3, loss4])
+            loss = loss1*weight[0] + loss2*weight[1] + loss3*weight[2] + loss4*weight[3]
         elif full_config.dipole_table:
             abpot, abdipole = abprop
             nnpot, nndipole = nnprop

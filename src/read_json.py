@@ -11,8 +11,10 @@ class JsonConfig:
     force_table: bool = field(default=True)
     dipole_table: bool = field(default=False)
     stress_table: bool = field(default=False)
+    bec_table: bool = field(default=False)
     stress_sign: int = field(default=1.0)
     dipole_sign: int = field(default=1.0)
+    bec_sign: int = field(default=-1.0)
     parity: bool = field(default=False)
     restart: bool = field(default=False)        
     jnp_dtype: str = field(default='float64')   #float32/float64

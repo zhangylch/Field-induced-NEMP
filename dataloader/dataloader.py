@@ -6,7 +6,7 @@ import fortran.getneigh as getneigh
 
 
 class Dataloader():
-    def __init__(self, maxneigh, batchsize, local_size=1, ncyc=5, initpot=0.0, cutoff=5.0, datafolder="./", ene_shift=True, force_table=True, stress_table=False, dipole_table=False, cross_val=True, jnp_dtype="float32", key=0, eval_mode=False, Fshuffle=True, ntrain=10):
+    def __init__(self, maxneigh, batchsize, local_size=1, ncyc=5, initpot=0.0, cutoff=5.0, datafolder="./", ene_shift=True, force_table=True, stress_table=False, dipole_table=False, bec_table=False, cross_val=True, jnp_dtype="float32", key=0, eval_mode=False, Fshuffle=True, ntrain=10):
             
         self.cutoff = cutoff
         self.batchsize = batchsize
@@ -15,6 +15,7 @@ class Dataloader():
         self.force_table = force_table
         self.stress_table = stress_table
         self.dipole_table = dipole_table
+        self.bec_table = bec_table
         self.cross_val = cross_val
         self.key = key
 
@@ -26,8 +27,8 @@ class Dataloader():
             self.int_dtype = np.int64
             self.float_dtype = np.float64
 
-        coordinates, field, cell, pbc, species, numatoms, pot, force_list, stress, dipole =  \
-        read_xyz.read_xyz(datafolder, force_table=force_table, stress_table=stress_table, dipole_table=dipole_table)
+        coordinates, field, cell, pbc, species, numatoms, pot, force_list, stress, dipole, bec_list =  \
+        read_xyz.read_xyz(datafolder, force_table=force_table, stress_table=stress_table, dipole_table=dipole_table, bec_table=bec_table)
         
         numatoms = np.array(numatoms)
         self.numpoint = numatoms.shape[0]
@@ -59,12 +60,16 @@ class Dataloader():
         if force_table:
             force = np.zeros((self.numpoint, self.maxnumatom, 3))
 
+        if bec_table:
+           bec = np.zeros((self.numpoint, self.maxnumatom, 9))
         # The purpose of these codes is to process conformational data consisting of different numbers of atoms into a regular tensor.
         for i in range(self.numpoint):
             expand_species[i, 0:self.numatoms[i]] = np.array(species[i], dtype=self.int_dtype)
             expand_species[i, self.numatoms[i]:] = expand_species[i, 0]
             if force_table:
                 force[i, 0:self.numatoms[i]] = -force_list[i]
+            if bec_table:
+                bec[i, 0:self.numatoms[i]] = -bec_list[i]
             center_factor[i, self.numatoms[i]:] = 0.0
         
         if force_table:
@@ -90,6 +95,7 @@ class Dataloader():
         self.species = expand_species
         self.center_factor = center_factor.astype(self.int_dtype)
         if force_table: self.force = force.astype(self.float_dtype)
+        if bec_table: self.bec = bec.reshape(self.numpoint, self.maxnumatom, 3,3).astype(self.float_dtype)
         if stress_table: self.stress = np.array(stress).astype(self.float_dtype)
         self.cell = cell
         self.pot = pot.astype(self.float_dtype)
@@ -137,6 +143,9 @@ class Dataloader():
             if self.dipole_table:
                 dipole = self.dipole[index_batch].reshape(self.local_size, self.ncyc, -1, 3)
                 abprop = abprop + (dipole,)
+            if self.bec_table:
+                bec = self.bec[index_batch].reshape(self.local_size, self.ncyc, -1, self.maxnumatom, 3, 3)
+                abprop = abprop + (bec,)
              
             self.ipoint = uppoint
             return coor, field, cell, neighlist, shiftimage, center_factor, species, abprop
